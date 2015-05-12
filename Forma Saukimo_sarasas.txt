@@ -1,0 +1,253 @@
+Option Compare Database
+Option Explicit
+
+Private Sub pbNaujas_Sarasas_Click()
+On Error GoTo HandleErr
+    Dim qDef1 As QueryDef
+    Dim qDef2 As QueryDef
+    Dim rst1 As DAO.Recordset
+    Dim rst2 As DAO.Recordset
+    Dim txtSrasoID As String
+    
+    'Autorius: ArtuCer
+    'Modifikavimo data: 2015-05-07
+    
+    'Patikriname ar einamaisiais metais jau yra sukurtas sąrašas
+    Set rst1 = CurrentDb.OpenRecordset("SELECT count(*) As Kiekis " & _
+        "FROM PRSK " & _
+        "WHERE year(SarasoData)=year(Date())")
+    If rst1("Kiekis") > 0 Then
+        MsgBox Year(Date) & " metų šaukimo sąrašai jau yra registruoti!" & vbLf & "Sąrašų generavimo procedūra nutraukiama.", _
+            vbInformation, "Informacija"
+        Exit Sub
+    End If
+    
+    Set qDef1 = CurrentDb.QueryDefs("qryfrm23_0")
+    Set qDef2 = CurrentDb.QueryDefs("qryfrm23_0_exec")
+    
+    'surandame regionų kiekį
+    qDef1.SQL = "SELECT count(*) As Kiekis " & _
+        "FROM PerVIS.kdch_reg"
+    Set rst1 = CurrentDb.OpenRecordset("SELECT * FROM qryfrm23_0")
+    Me.prbProgressBar.Value = 0
+    Me.prbProgressBar.Max = 4 + 2 * rst1("Kiekis")
+    
+    'surandame naujo sąrašo ID
+    Set rst1 = CurrentDb.OpenRecordset("SELECT SarasoID " & _
+        "FROM PRSK " & _
+        "WHERE SarasoID Like 'A%' " & _
+            "AND Len(SarasoID)=3 " & _
+        "ORDER BY SarasoData DESC")
+    If Not rst1.EOF Then
+        txtSrasoID = "A" & Format(CInt(Mid(rst1("SarasoID"), 2)) + 1, "00")
+    Else
+        txtSrasoID = "A01"
+    End If
+    
+    
+    'Sąrašų generavimo inicijavimas
+    Me.prbProgressBar.Value = Me.prbProgressBar.Value + 1
+    Me.txtProgress = "Sąrašų generavimo inicijavimas"
+    DoEvents
+    Me.Repaint
+    Me.Visible = True
+    
+    qDef2.SQL = "BEGIN PerVIS.SAUKIMO_SARASAS.Nauju_Sarasu_Inicijavimas('" & txtSrasoID & "'); END;"
+    qDef2.Execute
+        
+    Set rst2 = CurrentDb.OpenRecordset("SELECT count(*) As Kiekis " & _
+        "FROM PRSK " & _
+        "WHERE SarasoID Like '" & txtSrasoID & "*'")
+    If rst2("Kiekis") = 0 Then
+        MsgBox "Klaida " & txtSrasoID & "* sarašų generavimo inicijavime. Procedūra nutraukiama.", vbCritical, "Klaida"
+        Exit Sub
+    End If
+
+
+    'Generuojamas Axx sąrašas
+    Me.prbProgressBar.Value = Me.prbProgressBar.Value + 1
+    Me.txtProgress = "Generuojamas " & txtSrasoID & " sąrašas"
+    DoEvents
+    Me.Repaint
+    Me.Visible = True
+    
+    qDef2.SQL = "BEGIN PerVIS.SAUKIMO_SARASAS.Naujas_Sarasas_A('" & txtSrasoID & "'); END;"
+    qDef2.Execute
+        
+    Set rst2 = CurrentDb.OpenRecordset("SELECT count(*) As Kiekis " & _
+        "FROM PRS_A " & _
+        "WHERE SarasoID='" & txtSrasoID & "'")
+    If rst2("Kiekis") = 0 Then
+        MsgBox "Klaida generuojant " & txtSrasoID & " sąrašą. Procedūra nutraukiama.", vbCritical, "Klaida"
+        Exit Sub
+    End If
+
+
+    'Generuojamas Axxyy sąrašas
+    qDef1.SQL = "SELECT RegionoKodas, SkyriausOrgNo, PoskyrioOrgNo " & _
+        "FROM PerVIS.kdch_reg " & _
+        "ORDER BY 1"
+    Set rst1 = CurrentDb.OpenRecordset("SELECT * FROM qryfrm23_0")
+    Do While Not rst1.EOF
+        Me.prbProgressBar.Value = Me.prbProgressBar.Value + 1
+        Me.txtProgress = "Generuojamas " & txtSrasoID & rst1("RegionoKodas") & " sąrašas"
+        DoEvents
+        Me.Repaint
+        Me.Visible = True
+
+        qDef2.SQL = "BEGIN PerVIS.SAUKIMO_SARASAS.Naujas_Sarasas_B('" & txtSrasoID & "', '" & rst1("RegionoKodas") & "', " & rst1("SkyriausOrgNo") & ", " & rst1("PoskyrioOrgNo") & "); END;"
+        qDef2.Execute
+            
+        Set rst2 = CurrentDb.OpenRecordset("SELECT count(*) As Kiekis " & _
+            "FROM PRS_B " & _
+            "WHERE SarasoID='" & txtSrasoID & rst1("RegionoKodas") & "'")
+        If rst2("Kiekis") = 0 Then
+            MsgBox "Klaida generuojant " & txtSrasoID & rst1("RegionoKodas") & " sąrašą. Procedūra nutraukiama.", vbCritical, "Klaida"
+            Exit Sub
+        End If
+
+        rst1.MoveNext
+    Loop 'rst1
+    
+
+    'Išsaugoma sarašų kontrolinės sumos
+    qDef1.SQL = "SELECT SarasoID " & _
+        "FROM PRSK " & _
+        "WHERE SarasoID Like '" & txtSrasoID & "%' " & _
+        "ORDER BY SarasoID"
+    Set rst1 = CurrentDb.OpenRecordset("SELECT * FROM qryfrm23_0")
+    Do While Not rst1.EOF
+        Me.prbProgressBar.Value = Me.prbProgressBar.Value + 1
+        Me.txtProgress = "Išsaugoma sarašo " & rst1("SarasoID") & " kontrolinė suma"
+        DoEvents
+        Me.Repaint
+        Me.Visible = True
+
+        qDef2.SQL = "BEGIN PerVIS.SAUKIMO_SARASAS.Issaugoma_Kontroline_Suma('" & rst1("SarasoID") & "'); END;"
+        qDef2.Execute
+            
+        Set rst2 = CurrentDb.OpenRecordset("SELECT count(*) As Kiekis " & _
+            "FROM PRSK " & _
+            "WHERE SarasoID='" & rst1("SarasoID") & "' " & _
+                "AND KontrolineSuma='0'")
+        If rst2("Kiekis") > 0 Then
+            MsgBox "Klaida išsaugant " & rst1("SarasoID") & " sąrašo kontrolinę sumą. Procedūra nutraukiama.", vbCritical, "Klaida"
+            Exit Sub
+        End If
+
+        rst1.MoveNext
+    Loop 'rst1
+    
+
+    'sarašų generavimo užbaigimas
+    Me.prbProgressBar.Value = Me.prbProgressBar.Value + 1
+    Me.txtProgress = "Sąrašų generavimo užbaigimas"
+    DoEvents
+    Me.Repaint
+    Me.Visible = True
+    
+    qDef2.SQL = "BEGIN PerVIS.SAUKIMO_SARASAS.Nauju_Sarasu_Uzbaigimas; END;"
+    qDef2.Execute
+        
+    'Clear ProgressBar
+    Me.prbProgressBar.Value = 0
+    Me.txtProgress = ""
+    Me.Visible = True
+    
+    Forms!frm23_0!ufrm23_0_A.Requery
+    
+    MsgBox "Sąrašų generavimo procedūra užbaigta sėkmingai.", vbInformation, "Informacija"
+
+ExitHere:
+    Exit Sub
+
+HandleErr:
+    Select Case Err.Number
+        Case Else
+            MsgBox "Error " & Err.Number & ": " & Err.Description, vbCritical, "frm23_0.pbNaujas_Sarasas_Click"
+    End Select
+End Sub
+
+Private Sub pbQuit_Click()
+On Error GoTo HandleErr
+    
+    DoCmd.Close acForm, "frm23_0"
+
+ExitHere:
+    Exit Sub
+
+HandleErr:
+    Select Case Err.Number
+        Case Else
+            MsgBox "Error " & Err.Number & ": " & Err.Description, vbCritical, "frm23_0.pbQuit_Click"
+    End Select
+End Sub
+
+Private Sub pbTikrinti_Click()
+On Error GoTo HandleErr
+On Error GoTo HandleErr
+    Dim qDef1 As QueryDef
+    Dim rst1 As DAO.Recordset
+    Dim rst2 As DAO.Recordset
+    Dim txtRezultatas As String
+    Dim strData As Date
+
+    'Autorius: ArtuCer
+    'Modifikavimo data: 2015-05-07
+
+    Set qDef1 = CurrentDb.QueryDefs("qryfrm23_0")
+    
+    'surandame regionų kiekį
+    Set rst1 = CurrentDb.OpenRecordset("SELECT Count(*) AS Kiekis " & _
+        "FROM PRSK " & _
+        "WHERE SarasoID Like '" & [Forms]![frm23_0]![ufrm23_0_A].[Form]![SARASOID] & "*'")
+    Me.prbProgressBar.Value = 0
+    Me.prbProgressBar.Max = rst1("Kiekis")
+    
+    txtRezultatas = "Sarašo ID" & vbTab & Right("                     " & "Kontrolinė suma", 20) & vbTab & vbTab & "Trukmė" & vbLf
+    
+    'surandame sąrašo ID
+    Set rst1 = CurrentDb.OpenRecordset("SELECT SarasoID " & _
+        "FROM PRSK " & _
+        "WHERE SarasoID Like '" & [Forms]![frm23_0]![ufrm23_0_A].[Form]![SARASOID] & "*' " & _
+        "ORDER BY SarasoID")
+    Do While Not rst1.EOF
+        Me.prbProgressBar.Value = Me.prbProgressBar.Value + 1
+        Me.txtProgress = "Skaičiuojama " & rst1("SarasoID") & " kontrolinė suma"
+        DoEvents
+        Me.Repaint
+        Me.Visible = True
+    
+        strData = Now()
+        qDef1.SQL = "SELECT PerVIS.SAUKIMO_SARASAS.Saraso_Kontroline_Suma('" & rst1("SarasoID") & "') As Kontroline_Suma " & _
+            "FROM dual"
+        Set rst2 = CurrentDb.OpenRecordset("SELECT Kontroline_Suma FROM qryfrm23_0")
+    
+        If Not rst2.EOF Then
+            txtRezultatas = txtRezultatas & _
+                Right("    " & rst1("SarasoID"), 8) & vbTab & Right("                     " & rst2("Kontroline_Suma"), 20) & vbTab & vbTab & "  " & Format(Now() - strData, "n") * 60 + Format(Now() - strData, "s") & " sek." & vbLf
+        Else
+            txtRezultatas = txtRezultatas & _
+                Right("    " & rst1("SarasoID"), 8) & vbTab & Right("                     " & "Klaida!", 20) & vbTab & vbTab & "  " & Format(Now() - strData, "n") * 60 + Format(Now() - strData, "s") & " sek." & vbLf
+        End If
+    
+        rst1.MoveNext
+    Loop 'rst1
+    
+    'Clear ProgressBar
+    Me.prbProgressBar.Value = 0
+    Me.txtProgress = ""
+    Me.Visible = True
+    
+    MsgBox txtRezultatas, vbInformation, "Informacija"
+
+ExitHere:
+    Exit Sub
+
+HandleErr:
+    Select Case Err.Number
+        Case 2427
+        Case Else
+            MsgBox "Error " & Err.Number & ": " & Err.Description, vbCritical, "frm23_0.pbTikrinti_Click"
+    End Select
+End Sub

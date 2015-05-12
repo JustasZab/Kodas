@@ -1,0 +1,338 @@
+CREATE OR REPLACE PACKAGE SAUKIMO_SARASAS AS 
+-- Autorius: ArtuCer
+-- Modifikavimo data: 2015-04-30
+
+  --Ðaukimo sàraðø generavimo inicijavimas
+  PROCEDURE Nauju_Sarasu_Inicijavimas (in_SarasoID IN VARCHAR2);
+
+  --Generuojamas A sàraðas
+  PROCEDURE Naujas_Sarasas_A (in_SarasoID IN VARCHAR2);
+
+  --Generuojamas regioninis A sàraðas
+  PROCEDURE Naujas_Sarasas_B (in_SarasoID IN VARCHAR2, in_RegionoKodas IN VARCHAR2, in_SkyriausOrgNo IN INTEGER, in_PoskyrioOrgNo IN INTEGER);
+
+  --Skaièiuojama sàraðo kontrolinë suma
+  FUNCTION Saraso_Kontroline_Suma (in_SarasoID IN VARCHAR2) RETURN VARCHAR2;
+
+  --Iðsaugoma sàraðo kontrolinë suma
+  PROCEDURE Issaugoma_Kontroline_Suma (in_SarasoID IN VARCHAR2);
+
+  --Ðaukimo sàraðø generavimo uþbaigimas
+  PROCEDURE Nauju_Sarasu_Uzbaigimas;
+
+  --Ðaukimo sàraðø generavimas nuo A iki Z
+  PROCEDURE Sarasu_Generavimas_Nuo_A_Iki_Z (in_SarasoID IN VARCHAR2);
+
+END SAUKIMO_SARASAS;
+/
+
+
+CREATE OR REPLACE PACKAGE BODY SAUKIMO_SARASAS AS
+-- Autorius: ArtuCer
+-- Modifikavimo data: 2015-05-07
+
+  --Ðaukimo sàraðø generavimo inicijavimas
+  PROCEDURE Nauju_Sarasu_Inicijavimas (in_SarasoID IN VARCHAR2) AS
+    v_data DATE;
+    v_filehandle UTL_FILE.FILE_TYPE;
+  BEGIN
+    --Atidaromas log failas
+    v_filehandle := UTL_FILE.FOPEN ('ORACLE_LOG_DIR', 'PerVIS_Saukimo_sarasu_generavimas.log', 'a');
+
+    UTL_FILE.PUTF (v_filehandle, 'Ðaukimo sàraðø generavimas pradëtas: %s\n\n', TO_CHAR(SYSDATE,'YYYY-MM-DD HH24:MI:SS'));
+  
+    v_data:=sysdate;
+    INSERT INTO PRSK (SarasoID, SarasoData, TeritOrgNo, KontrolineSuma, ObjektuSkaicius, RevOrgNo, UserID, RevisionDate)
+      SELECT in_SarasoID, trunc(SysDate), Null, 0, 0, 0, User, SysDate
+      FROM dual
+      UNION
+      SELECT in_SarasoID||RegionoKodas, trunc(SysDate), SkyriausOrgNo, 0, 0, 0, User, SysDate
+      FROM kdch_reg;
+  
+    UTL_FILE.PUTF (v_filehandle, '     - sàraðø kontroliniø áraðø kiekis: %s     %s\n', SQL%ROWCOUNT, TO_CHAR(TO_DATE('00:00:00','HH24:MI:SS')+(SYSDATE-v_data),'HH24:MI:SS'));
+  
+    COMMIT;
+
+    UTL_FILE.FCLOSE (v_filehandle);
+
+  EXCEPTION
+  
+    WHEN UTL_FILE.INVALID_PATH THEN
+      RAISE_APPLICATION_ERROR (-20001, 'Blogas log failo kelias.');
+      UTL_FILE.FCLOSE_ALL;
+    WHEN UTL_FILE.INVALID_FILEHANDLE THEN
+      RAISE_APPLICATION_ERROR (-20002, 'Blogas log failas.');
+      UTL_FILE.FCLOSE_ALL;
+    WHEN UTL_FILE.WRITE_ERROR THEN
+      RAISE_APPLICATION_ERROR (-20003, 'Negalima áraðyti á log failà.');
+      UTL_FILE.FCLOSE_ALL;
+    WHEN OTHERS THEN
+      UTL_FILE.PUTF (v_filehandle, 'Klaida: %s\n', SQLERRM);
+      UTL_FILE.PUTF (v_filehandle, 'Ðaukimo sàraðø generavimo inicijavimas nutrauktas: %s\n\n', TO_CHAR(SYSDATE,'YYYY-MM-DD HH24:MI:SS'));
+      UTL_FILE.PUT_LINE (v_filehandle, '------------------------------------------------------------------');
+      UTL_FILE.NEW_LINE (v_filehandle);
+      UTL_FILE.FCLOSE_ALL;
+  END Nauju_Sarasu_Inicijavimas;
+
+
+  --Generuojamas A sàraðas
+  PROCEDURE Naujas_Sarasas_A (in_SarasoID IN VARCHAR2) AS
+    v_data DATE;
+    v_filehandle UTL_FILE.FILE_TYPE;
+  BEGIN
+    --Atidaromas log failas
+    v_filehandle := UTL_FILE.FOPEN ('ORACLE_LOG_DIR', 'PerVIS_Saukimo_sarasu_generavimas.log', 'a');
+
+    v_data:=sysdate;
+    INSERT INTO PRS_A (PersonalCode, SarasoID, EilesNr, AtsitiktinisSkaicius, RevOrgNo, UserID, RevisionDate)
+      SELECT PersonalCode, in_SarasoID, rownum as Eil_Nr, atsitiktinis, 0, User, SysDate
+      FROM (SELECT dbms_random.value as atsitiktinis, PersonalCode
+            FROM PRV
+            WHERE PersonalCode Not In(SELECT PersonalCode FROM PRA WHERE KKPAKodas In('V','Z','X'))
+            ORDER BY 1) a1;
+   
+    UTL_FILE.PUTF (v_filehandle, '     - %s sàraðo áraðø kiekis: %s     %s\n', in_SarasoID, SQL%ROWCOUNT, TO_CHAR(TO_DATE('00:00:00','HH24:MI:SS')+(SYSDATE-v_data),'HH24:MI:SS'));
+
+    COMMIT;
+
+    UTL_FILE.FCLOSE (v_filehandle);
+
+  EXCEPTION
+    
+    WHEN UTL_FILE.INVALID_PATH THEN
+      RAISE_APPLICATION_ERROR (-20001, 'Blogas log failo kelias.');
+      UTL_FILE.FCLOSE_ALL;
+    WHEN UTL_FILE.INVALID_FILEHANDLE THEN
+      RAISE_APPLICATION_ERROR (-20002, 'Blogas log failas.');
+      UTL_FILE.FCLOSE_ALL;
+    WHEN UTL_FILE.WRITE_ERROR THEN
+      RAISE_APPLICATION_ERROR (-20003, 'Negalima áraðyti á log failà.');
+      UTL_FILE.FCLOSE_ALL;
+    WHEN OTHERS THEN
+      UTL_FILE.PUTF (v_filehandle, 'Klaida: %s\n', SQLERRM);
+      UTL_FILE.PUTF (v_filehandle, 'Axx sàraðo generavimas nutrauktas: %s\n\n', TO_CHAR(SYSDATE,'YYYY-MM-DD HH24:MI:SS'));
+      UTL_FILE.PUT_LINE (v_filehandle, '------------------------------------------------------------------');
+      UTL_FILE.NEW_LINE (v_filehandle);
+      UTL_FILE.FCLOSE_ALL;
+  END Naujas_Sarasas_A;
+
+
+  --Generuojamas regioninis A sàraðas
+  PROCEDURE Naujas_Sarasas_B (in_SarasoID IN VARCHAR2, in_RegionoKodas IN VARCHAR2, in_SkyriausOrgNo IN INTEGER, in_PoskyrioOrgNo IN INTEGER) AS
+    v_data DATE;
+    v_filehandle UTL_FILE.FILE_TYPE;
+  BEGIN
+    --Atidaromas log failas
+    v_filehandle := UTL_FILE.FOPEN ('ORACLE_LOG_DIR', 'PerVIS_Saukimo_sarasu_generavimas.log', 'a');
+
+    v_data:=sysdate;
+    INSERT INTO PRS_B (PersonalCode, SarasoID, EilesNr, TeritOrgNo, RevOrgNo, UserID, RevisionDate)
+      SELECT PersonalCode, in_SarasoID||in_RegionoKodas, rownum as Eil_Nr, OfficeCode, 0, User, SysDate
+      FROM (SELECT PRS_A.EilesNr, PRS_A.PersonalCode, DCH.OfficeCode
+            FROM PRS_A
+              INNER JOIN PER ON PRS_A.PersonalCode=PER.PersonalCode
+              INNER JOIN PRV ON PRS_A.PersonalCode=PRV.PersonalCode
+              INNER JOIN DCH ON PRS_A.PersonalCode=DCH.PersonalCode
+            WHERE PRS_A.SarasoID=in_SarasoID
+              --iki einamøjø metø pradþios sukakæs 19 - 25 metø amþius
+              AND PER.BirthDate BETWEEN add_months(trunc(sysdate,'YEAR'),-26*12) AND add_months(trunc(sysdate,'YEAR'),-19*12)-1
+              --neátraukti kandidatø á NPPKT kuriø priëmimo bûsena "Vykdomas priëmimas"
+              AND PRS_A.PersonalCode Not IN (SELECT PersonalCode 
+                                              FROM TKT
+                                              WHERE TKT.KTKTKodas='S' 
+                                                AND TKT.KTKBKodas=0
+                                                AND RegistravimoData<sysdate
+                                                AND nvl(PabaigosData,'2100-12-31')>sysdate)
+              AND PRV.KKPTKodas='N' --neparengtojo rezervo karys
+              AND (DCH.OfficeCode=in_SkyriausOrgNo OR DCH.OfficeCode=in_PoskyrioOrgNo)
+            ORDER BY 1) a1;
+
+    UTL_FILE.PUTF (v_filehandle, '     - %s%s sàraðo áraðø kiekis: %s     %s\n', in_SarasoID, in_RegionoKodas, SQL%ROWCOUNT, TO_CHAR(TO_DATE('00:00:00','HH24:MI:SS')+(SYSDATE-v_data),'HH24:MI:SS'));
+  
+    COMMIT;
+    
+    UTL_FILE.FCLOSE (v_filehandle);
+
+  EXCEPTION
+  
+    WHEN UTL_FILE.INVALID_PATH THEN
+      RAISE_APPLICATION_ERROR (-20001, 'Blogas log failo kelias.');
+      UTL_FILE.FCLOSE_ALL;
+    WHEN UTL_FILE.INVALID_FILEHANDLE THEN
+      RAISE_APPLICATION_ERROR (-20002, 'Blogas log failas.');
+      UTL_FILE.FCLOSE_ALL;
+    WHEN UTL_FILE.WRITE_ERROR THEN
+      RAISE_APPLICATION_ERROR (-20003, 'Negalima áraðyti á log failà.');
+      UTL_FILE.FCLOSE_ALL;
+    WHEN OTHERS THEN
+      UTL_FILE.PUTF (v_filehandle, 'Klaida: %s\n', SQLERRM);
+      UTL_FILE.PUTF (v_filehandle, 'Axxyy saraðo generavimas nutrauktas: %s\n\n', TO_CHAR(SYSDATE,'YYYY-MM-DD HH24:MI:SS'));
+      UTL_FILE.PUT_LINE (v_filehandle, '------------------------------------------------------------------');
+      UTL_FILE.NEW_LINE (v_filehandle);
+      UTL_FILE.FCLOSE_ALL;
+  END Naujas_Sarasas_B;
+
+
+  --Skaièiuojama saraðo kontrolinë suma
+  FUNCTION Saraso_Kontroline_Suma (in_SarasoID IN VARCHAR2) RETURN VARCHAR2 AS
+    v_Kontroline_Suma VARCHAR2(32);
+  BEGIN
+    IF LENGTH(in_SarasoID)=3 THEN
+      FOR ks_rec IN (SELECT to_char(sum(owa_opt_lock.checksum(PRS_A.PersonalCode||PRS_A.SarasoID||PRS_A.EilesNr||PRS_A.AtsitiktinisSkaicius))) CHECKSUM
+                      FROM prs_A 
+                      WHERE PRS_A.SarasoID=in_SarasoID)
+      LOOP
+        v_Kontroline_Suma:=nvl(ks_rec.CHECKSUM,0);
+        
+        EXIT;
+      END LOOP;
+    ELSE
+      FOR ks_rec IN (SELECT to_char(sum(owa_opt_lock.checksum(PRS_B.PersonalCode||PRS_B.SarasoID||PRS_B.EilesNr||PRS_B.TeritOrgNo))) CHECKSUM
+                      FROM prs_B 
+                      WHERE PRS_B.SarasoID=in_SarasoID)
+      LOOP
+        v_Kontroline_Suma:=nvl(ks_rec.CHECKSUM,0);
+        
+        EXIT;
+      END LOOP;
+    END IF;
+
+    RETURN v_Kontroline_Suma;
+
+  END Saraso_Kontroline_Suma;
+
+
+  --Iðsaugoma saraðo kontrolinë suma
+  PROCEDURE Issaugoma_Kontroline_Suma (in_SarasoID IN VARCHAR2) AS
+    v_Kontroline_Suma VARCHAR2(32);
+    v_data DATE;
+    v_filehandle UTL_FILE.FILE_TYPE;
+  BEGIN
+    --Atidaromas log failas
+    v_filehandle := UTL_FILE.FOPEN ('ORACLE_LOG_DIR', 'PerVIS_Saukimo_sarasu_generavimas.log', 'a');
+
+    v_data:=sysdate;
+    v_Kontroline_Suma:=SAUKIMO_SARASAS.Saraso_Kontroline_Suma(in_SarasoID);
+    IF LENGTH(in_SarasoID)=3 THEN
+      UPDATE PRSK SET
+          KontrolineSuma=v_Kontroline_Suma,
+          ObjektuSkaicius=(SELECT count(*)
+              FROM prs_A 
+              WHERE PRSK.SarasoID=PRS_A.SarasoID),
+          RevOrgNo=0,
+          UserID=User,
+          RevisionDate=sysdate
+        WHERE SarasoID=in_SarasoID;
+    ELSE
+      UPDATE PRSK SET
+          KontrolineSuma=v_Kontroline_Suma,
+          ObjektuSkaicius=(SELECT count(*)
+              FROM prs_B 
+              WHERE PRSK.SarasoID=PRS_B.SarasoID),
+          RevOrgNo=0,
+          UserID=User,
+          RevisionDate=sysdate
+        WHERE SarasoID=in_SarasoID;
+    END IF;
+
+    UTL_FILE.PUTF (v_filehandle, '     - %s sàraðo konrolinë suma: %s      %s\n', in_SarasoID, v_Kontroline_Suma, TO_CHAR(TO_DATE('00:00:00','HH24:MI:SS')+(SYSDATE-v_data),'HH24:MI:SS'));
+  
+    COMMIT;
+
+    UTL_FILE.FCLOSE (v_filehandle);
+
+  EXCEPTION
+  
+    WHEN UTL_FILE.INVALID_PATH THEN
+      RAISE_APPLICATION_ERROR (-20001, 'Blogas log failo kelias.');
+      UTL_FILE.FCLOSE_ALL;
+    WHEN UTL_FILE.INVALID_FILEHANDLE THEN
+      RAISE_APPLICATION_ERROR (-20002, 'Blogas log failas.');
+      UTL_FILE.FCLOSE_ALL;
+    WHEN UTL_FILE.WRITE_ERROR THEN
+      RAISE_APPLICATION_ERROR (-20003, 'Negalima áraðyti á log failà.');
+      UTL_FILE.FCLOSE_ALL;
+    WHEN OTHERS THEN
+      UTL_FILE.PUTF (v_filehandle, 'Klaida: %s\n', SQLERRM);
+      UTL_FILE.PUTF (v_filehandle, 'Kontroliniø sumø iðsaugojimas nutrauktas: %s\n\n', TO_CHAR(SYSDATE,'YYYY-MM-DD HH24:MI:SS'));
+      UTL_FILE.PUT_LINE (v_filehandle, '------------------------------------------------------------------');
+      UTL_FILE.NEW_LINE (v_filehandle);
+      UTL_FILE.FCLOSE_ALL;
+  END Issaugoma_Kontroline_Suma;
+
+
+  --Ðaukimo sàraðø generavimo uþbaigimas
+  PROCEDURE Nauju_Sarasu_Uzbaigimas AS
+    v_filehandle UTL_FILE.FILE_TYPE;
+  BEGIN
+    --Atidaromas log failas
+    v_filehandle := UTL_FILE.FOPEN ('ORACLE_LOG_DIR', 'PerVIS_Saukimo_sarasu_generavimas.log', 'a');
+    
+    UTL_FILE.NEW_LINE (v_filehandle);
+    UTL_FILE.PUTF (v_filehandle, 'Ðaukimo sàraðø generavimas baigtas: %s\n\n', TO_CHAR(SYSDATE,'YYYY-MM-DD HH24:MI:SS'));
+    UTL_FILE.PUT_LINE (v_filehandle, '------------------------------------------------------------------');
+    UTL_FILE.NEW_LINE (v_filehandle);
+
+    UTL_FILE.FCLOSE (v_filehandle);
+
+  EXCEPTION
+  
+    WHEN UTL_FILE.INVALID_PATH THEN
+      RAISE_APPLICATION_ERROR (-20001, 'Blogas log failo kelias.');
+      UTL_FILE.FCLOSE_ALL;
+    WHEN UTL_FILE.INVALID_FILEHANDLE THEN
+      RAISE_APPLICATION_ERROR (-20002, 'Blogas log failas.');
+      UTL_FILE.FCLOSE_ALL;
+    WHEN UTL_FILE.WRITE_ERROR THEN
+      RAISE_APPLICATION_ERROR (-20003, 'Negalima áraðyti á log failà.');
+      UTL_FILE.FCLOSE_ALL;
+    WHEN OTHERS THEN
+      UTL_FILE.PUTF (v_filehandle, 'Klaida: %s\n', SQLERRM);
+      UTL_FILE.PUTF (v_filehandle, 'Ðaukimo saraðø generavimas nutrauktas: %s\n\n', TO_CHAR(SYSDATE,'YYYY-MM-DD HH24:MI:SS'));
+      UTL_FILE.PUT_LINE (v_filehandle, '------------------------------------------------------------------');
+      UTL_FILE.NEW_LINE (v_filehandle);
+      UTL_FILE.FCLOSE_ALL;
+  END Nauju_Sarasu_Uzbaigimas;
+
+
+  --Ðaukimo sàraðø generavimas nuo A iki Z
+  PROCEDURE Sarasu_Generavimas_Nuo_A_Iki_Z (in_SarasoID IN VARCHAR2) AS
+    v_SarasoID varchar(2);
+    v_return varchar(8);
+    
+  BEGIN
+    
+    --Ðaukimo sàraðø generavimo inicijavimas
+    SAUKIMO_SARASAS.Nauju_Sarasu_Inicijavimas(in_SarasoID);    
+    
+    
+    --Generuojamas A sàraðas
+    SAUKIMO_SARASAS.Naujas_Sarasas_A(in_SarasoID);    
+    
+    
+    --Generuojamas regioninis A sàraðas
+    FOR B_sarasas_rec IN (SELECT RegionoKodas, SkyriausOrgNo, PoskyrioOrgNo
+      FROM kdch_reg
+      ORDER BY 1)
+    LOOP
+      SAUKIMO_SARASAS.Naujas_Sarasas_B(in_SarasoID, B_sarasas_rec.RegionoKodas, B_sarasas_rec.SkyriausOrgNo, B_sarasas_rec.PoskyrioOrgNo);    
+    END LOOP;
+    
+    
+    --Iðsaugoma sàraðo kontrolinë suma
+    FOR sarasoID_rec IN (SELECT SarasoID
+                        FROM PRSK  
+                        WHERE SarasoID Like in_SarasoID||'%'
+                        ORDER BY SarasoID)
+    LOOP
+      SAUKIMO_SARASAS.Issaugoma_Kontroline_Suma(sarasoID_rec.SarasoID);    
+    END LOOP;
+    
+    
+    --Ðaukimo sàraðø generavimo uþbaigimas
+    SAUKIMO_SARASAS.Nauju_Sarasu_Uzbaigimas;
+    
+  END Sarasu_Generavimas_Nuo_A_Iki_Z;
+
+END SAUKIMO_SARASAS;
+/
